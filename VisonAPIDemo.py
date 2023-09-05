@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import json
 import openai
 import pandas as pd
@@ -10,12 +11,8 @@ from google.oauth2 import service_account
 
 def initialize_demo(google_application_credentials, openai_api_key_path):
     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = google_application_credentials
-    openai.api_key = openai_api_key_path
+    openai.api_key_path = openai_api_key_path
 
-    if os.environ['GOOGLE_APPLICATION_CREDENTIALS'] and openai.api_key:
-        print('Initialized successfully')
-    else:
-        print('Initializing failed')
 
 
 def upload_to_bucket(project=None, bucket=None, file=None):
@@ -76,7 +73,7 @@ def convert_pdf_to_text(file_uri, batch_size=4):
     
 def call_chat_gpt_api(predefined_gpt_question, message):
     completion = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4",
         messages=[{"role": "user", "content": predefined_gpt_question + message}]
     )
 
@@ -85,6 +82,7 @@ def call_chat_gpt_api(predefined_gpt_question, message):
 
 def parse_openai_response(response):
     return_message = response["choices"][0]["message"]["content"]
+    print(response["usage"]["total_tokens"])
     return return_message
 
 
@@ -112,10 +110,9 @@ if __name__ == "__main__":
     results = []
 
     predefined_questions = ['What is the county name in this text? Reply only with the county name. ', \
-                            'Who should I return to after the recording? It should be specified after the line "Return to". \
-                                Reply only with the firm name. If there are more firms, give me all of them. ', \
+                            'Give me the company names of whom I should return after recording from the text below. Give me the first option. Reply only with the name.', \
                             'Give me the grantor name or company in this text. Reply only with the grantor name ', \
-                            'Give me the book and page numbers from this text. It should be written after the first line BK: . Ignore the the other lines with BK: ', \
+                            'Give me only the fist the book and page number from this text. It should be written after the first line "BK:". If there are more, give me only the first book and page number. ', \
                             'Give me the recording date. Not the date when it was signed. Reply only with the date and no other additional message. ']
 
     initialize_demo(google_application_credentials, openai_api_key_path)
@@ -139,21 +136,27 @@ if __name__ == "__main__":
                         page_response = response['responses'][page_nr]
                         annotation = page_response['fullTextAnnotation']
 
-                        print('Converted text:')
-                        print(annotation['text'])
-
                         message += annotation['text']
+
             print('-------------------------------------------------')
             print(message)
+
             gpt_answers_as_list = []
-            
+            tokens_used = 0
+
             for predefined_question in predefined_questions:
                 gpt_answer = call_chat_gpt_api(predefined_question, message)
             
-                result = parse_openai_response(gpt_answer)
+                #result = parse_openai_response(gpt_answer)
+                result = gpt_answer["choices"][0]["message"]["content"]
+                tokens_used += int(gpt_answer["usage"]["total_tokens"])
                 gpt_answers_as_list.append(result)
 
                 print(result)
+
+                if tokens_used > 8000:
+                    time.sleep(30)
+                    tokens_used = 0
             
             results.append(gpt_answers_as_list)
 
